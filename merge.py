@@ -10,56 +10,50 @@ openai.api_base =  "https://12345678.openai.azure.com/"
 openai.api_version = "2023-08-01-preview"
 openai.api_key = "ed9b1ce76dc14fcf875b93dc8c852f51"
 
-# 老钩子函数取值
-# file_names = sys.argv[1:1 + len(sys.argv) // 2]  
-# file_contents = sys.argv[1 + len(sys.argv) // 2:] 
-# file_count = len(file_names) 
-
 
 # 新钩子函数取值
-if len(sys.argv) != 2:
-    print("Usage: python merge.py <conflict_directory>")
-    sys.exit(1)
 
 conflict_directory = sys.argv[1]
-print("conflict_directory：",conflict_directory)
+# print("conflict_directory：", conflict_directory)
 file_names = []
 file_contents = []
 
 for filename in os.listdir(conflict_directory):
     file_path = os.path.join(conflict_directory, filename)
-    print("file_path:",file_path)
+    # print("------------file_path--------------:", file_path)
     if os.path.isfile(file_path):
-        with open(file_path, 'r') as file:
+        with open(file_path, 'r', encoding='utf-8') as file:  # 指定 'utf-8' 编码
             file_names.append(filename)
             file_contents.append(file.read())
 
 file_count = len(file_names)
-print("file_count:",file_count)
-
+print("冲突文件数量:", file_count)
+  
 current_index = -1  # 记录 file_contents 的当前索引
 
 def resolve_conflict(code, file_type):
+    global current_index
     response = openai.ChatCompletion.create(
         engine="gpt3501",
         messages=[
             {"role": "system", "content": f"""
-            你是一名程序员，以下是由两个不同版本{file_type}代码进行代码合并后得到的一份待处理冲突代码。其中"<<<<<<< HEAD"表示代码冲突的起始标志，">>>>>>> branch-b"表示代码冲突的结束标志，
-            夹在起始标志和结束标志中间的"======="用于分隔冲突部分两个不同分支的代码，请根据冲突标志分析其中代码冲突的部分，依据整体代码逻辑解决冲突，然后消去冲突标志，注意输出合并结果时请勿省略长代码段和注释，保证输出代码完整且可用，并且只输出合并后代码，不输出其他文字分析内容
+            你是一名经验丰富的程序员，以下是由两个不同版本{file_type}代码进行代码合并后得到的一份待处理冲突代码。其中"<<<<<<< HEAD"表示代码冲突的起始标志，">>>>>>> branch-b"表示代码冲突的结束标志，
+            夹在起始标志和结束标志中间的"======="用于分隔冲突部分两个不同分支的代码，请根据冲突标志分析其中代码冲突的部分，依据整体代码逻辑解决冲突，然后消去冲突标志，注意输出合并结果时请勿省略长代码段和注释，保证输出代码的完整性和正确性，并且只输出合并后代码，不输出其他文字分析内容
             """},
             {"role": "user", "content": f"{code}"},],
     )
     return response.choices[0].message.content.strip(),""
 
 def resolve_conflict_and_analysis(code, file_type):
+    global current_index
     response = openai.ChatCompletion.create(
         engine="gpt3501",
         temperature=0.5,
         messages=[
             {"role": "system", "content": f"""
-            你是一名程序员，以下是由两个不同版本{file_type}代码进行代码合并后得到的一份待处理冲突代码。其中"<<<<<<< HEAD"表示代码冲突的起始标志，">>>>>>> branch-b"表示代码冲突的结束标志，
-            夹在起始标志和结束标志中间的"======="用于分隔冲突部分两个不同分支的代码，请根据冲突标志分析其中代码冲突的部分，依据整体代码逻辑解决冲突，消去冲突标志，注意输出合并结果时请勿省略长代码段和注释，保证输出代码完整且可使用，
-            先输出代码，再输出"####################"，最后输出合并过程分析。
+            你是一名经验丰富的程序员，以下是由两个不同版本{file_type}代码进行代码合并后得到的一份待处理冲突代码。其中"<<<<<<< HEAD"表示代码冲突的起始标志，">>>>>>> branch-b"表示代码冲突的结束标志，
+            夹在起始标志和结束标志中间的"======="用于分隔冲突部分两个不同分支的代码，请根据冲突标志分析其中代码冲突的部分，依据整体代码逻辑解决冲突，消去冲突标志，注意输出合并结果时请勿省略长代码段和注释，保证输出代码的完整性和正确性，
+            先输出合并后代码，再用中文解释你这么合并的原因，代码和解释两部分之间用"####################"分隔开。
             """},
             {"role": "user", "content": f"{code}"},]
     )
@@ -89,6 +83,28 @@ def next_conflict():
         return "所有冲突浏览完毕", "所有冲突已处理", "","",""
     return file_names[current_index],file_contents[current_index], file_type, "",""
 
+def previous_conflict():
+    global current_index
+    if current_index > 0:
+        current_index -= 1
+        if '.' not in file_names[current_index]:
+            file_type = ""
+        else:
+            file_type = file_names[current_index].split('.')[-1]
+    else:
+        return file_names[current_index],file_contents[current_index], "", "","当前已经是第一条冲突！"
+    return file_names[current_index],file_contents[current_index], file_type, "",""
+
+def merge_and_submit_all_conflicts():
+    merge_results = []
+    for i in range(len(file_names)):
+        conflict_code = file_contents[i]
+        file_type = ""
+        if '.' in file_names[i]:
+            file_type = file_names[i].split('.')[-1]
+        merged_code, _ = resolve_conflict(conflict_code, file_type)
+        merge_results.append(submit_result(file_names[i], merged_code))
+    return merge_results
 
 
 css = """
@@ -120,17 +136,24 @@ with gr.Blocks(css=css) as app:
         merge_button = gr.Button("生成合并代码")
         merge_analysis_button = gr.Button("生成合并代码和分析(beta)")
         submit_button = gr.Button("提交合并结果")
+        merge_and_submit_button = gr.Button("一键生成合并结果并提交")  # 新增的按钮
+    with gr.Row():
+        previous_button = gr.Button("上一条冲突")
         next_button = gr.Button("下一条冲突")
 
     merge_button.click(fn=resolve_conflict, inputs=[conflict_code_input, current_file_type], outputs=[merged_code_output,conflict_analysis_output])
     merge_analysis_button.click(fn=resolve_conflict_and_analysis, inputs=[conflict_code_input, current_file_type], outputs=[merged_code_output,conflict_analysis_output])
     submit_button.click(fn=submit_result, inputs=[current_file_name, merged_code_output], outputs=current_file_name)
+    merge_and_submit_button.click(fn=merge_and_submit_all_conflicts, outputs=current_file_name)
+
     next_button.click(fn=next_conflict, outputs=[current_file_name, conflict_code_input, current_file_type, merged_code_output, conflict_analysis_output])
+    previous_button.click(fn=previous_conflict, outputs=[current_file_name, conflict_code_input, current_file_type, merged_code_output, conflict_analysis_output])
 
 # Gradio 界面启动时自动加载第一个冲突
 first_file_name, first_conflict_code,  file_type, _, _ = next_conflict()
 current_file_name.value = first_file_name
 conflict_code_input.value = first_conflict_code
 current_file_type.value = file_type
+
 
 app.launch()
