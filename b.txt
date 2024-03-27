@@ -1,6 +1,7 @@
 @Service
-public class SettlefundController implements BaseController {
+public class SettlefundController extends BaseController {
     @Autowired
-    private InnerSesService outerSesService;
-	System.out.println("helloworld!");
-
+    private InnerSesService innerSesService;
+    System.out.println("helloworld!");
+    //ÆäËû´úÂë
+}
